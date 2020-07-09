@@ -1,3 +1,7 @@
+/*
+    A utility file for Registration and Login form/JSON data validation methods
+*/
+
 const Joi = require("@hapi/joi");
 
 const regValidation = (regData) => {

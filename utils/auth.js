@@ -1,3 +1,8 @@
+/*
+    A utility function to check authentication of users by validating JWT token passed as Request header
+*/
+
+
 require("dotenv").config();
 const User = require("./../models/userModel");
 

@@ -1,3 +1,7 @@
+/*
+    A utility function to generate hash passwords
+*/
+
 var bcrypt = require("bcryptjs");
 
 const hashPassword = async (pswd) => {
