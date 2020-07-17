@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
+const _ = require("lodash");
 
 var UserSchema = new mongoose.Schema({
   username: {
@@ -21,29 +22,24 @@ var UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now(),
   },
-  tokens: [
-    {
-      token: {
-        type: String,
-        required: true,
-      },
-    },
-  ],
 });
 
-UserSchema.methods.generateAuthToken = async function () {
+UserSchema.methods.getTokens = async function () {
   const user = this;
-  const token = jwt.sign({ _id: user._id.toString() }, process.env.SECRET, {
-    expiresIn: "7 days",
+
+  const token = jwt.sign({ _id: user._id }, process.env.SECRET, {
+    expiresIn: "120000", //2m
   });
 
-  user.tokens = user.tokens.concat({ token });
-  try {
-    await user.save();
-  } catch (err) {
-    throw new Error(err);
-  }
-  return token;
+  const refreshToken = jwt.sign(
+    { user: _.pick(user, ["_id", "date", "username"]) },
+    process.env.REFRESH + process.env.SECRET,
+    {
+      expiresIn: "7d",
+    }
+  );
+
+  return { token: token, refreshToken: refreshToken };
 };
 
 var Users = mongoose.model("Users", UserSchema);

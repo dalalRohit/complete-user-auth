@@ -2,7 +2,6 @@
     Main Route file
 */
 
-
 var express = require("express");
 var router = express.Router();
 var _ = require("lodash");
@@ -54,18 +53,13 @@ router.post("/register", async (req, res, next) => {
         if (hash) {
           newUser.password = hash;
         }
-        try {
-          const token = await newUser.generateAuthToken();
-          res.header("auth-token", token);
-        } catch (err) {
-          res.status(400).send(err);
-        }
+        await newUser.save();
 
         return res.status(201).send({ register: true, user: newUser._id });
       }
     })
     .catch((err) => {
-      return res.status(400).json({register:false,err});
+      return res.status(400).json({ register: false, err });
     });
 });
 
@@ -94,18 +88,33 @@ router.post("/login", (req, res, next) => {
         .status(400)
         .json({ login: false, msg: "Passwords do not match!" });
     }
-    const token = await user.generateAuthToken();
+    const { token, refreshToken } = await user.getTokens();
+    try {
+      await user.save();
+      req.user = user;
+      req.tokens = [token, refreshToken];
+    } catch (err) {
+      return res.status(400).json({ err });
+    }
 
-    /*
-     Send auth-token as a response header to your front-end.
-    */
-    res.header("auth-token", token);
-
-    res.status(201).send({
-      login: true,
-      user: user["_id"],
-      token,
-    });
+    console.log("Login true");
+    //Send user with set HTTP cookies
+    res
+      .status(201)
+      .cookie("token", token, {
+        httpOnly: true,
+        maxAge: 36000,
+      })
+      .cookie("x-token", refreshToken, {
+        httpOnly: true,
+        maxAge: 36000,
+      })
+      .send({
+        login: true,
+        user: req.user["_id"],
+        token: req.tokens[0],
+        refreshToken: req.tokens[1],
+      });
   });
 });
 
@@ -145,7 +154,7 @@ router.post("/user/:id", auth, (req, res) => {
   @access : Protected
 */
 router.get("/test", auth, (req, res) => {
-  res.send({
+  res.status(200).send({
     msg: "Success",
     user: req.user,
   });
@@ -215,7 +224,7 @@ router.get("/check", auth, async (req, res) => {
 */
 router.put("/update/:id", (req, res, next) => {
   const { id } = req.params;
-  const  { new_password, new_password_confirm } = req.body;
+  const { new_password, new_password_confirm } = req.body;
   if (new_password !== new_password_confirm) {
     return res
       .status(400)
