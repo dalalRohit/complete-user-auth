@@ -8,6 +8,7 @@ var _ = require("lodash");
 var bcrypt = require("bcryptjs");
 const redis = require("redis");
 const client = redis.createClient();
+const { v4: uuidv4 } = require("uuid");
 
 const updateData = (req, data) => {
   return {
@@ -53,10 +54,12 @@ router.post("/register", async (req, res, next) => {
           msg: `User with username ${username} already exists!`,
         });
       } else {
+        const refresh = uuidv4();
         const newUser = new User({
           username,
           email,
           password,
+          refresh,
         });
         const hash = await hashPassword(newUser.password);
         if (hash) {
@@ -97,14 +100,12 @@ router.post("/login", (req, res, next) => {
         .status(400)
         .json({ login: false, msg: "Passwords do not match!" });
     }
-    const { token, xToken } = await createTokens(user._id);
-    try {
-      await user.save();
-      req.user = user;
-      req.tokens = { token, xToken };
-    } catch (err) {
-      return res.status(400).json({ login: false, err });
-    }
+    const { token } = await createTokens(user._id);
+
+    const refresh = user["refresh"];
+
+    req.user = user;
+    req.tokens = { token, refresh };
 
     //Send user with set HTTP cookies
     const options = {
@@ -116,13 +117,13 @@ router.post("/login", (req, res, next) => {
 
     //Set cookies
     res.cookie("token", token, options);
-    res.cookie("x-token", xToken, options);
+    res.cookie("x-token", refresh, options);
 
     res.status(201).send({
       login: true,
       user: req.user["_id"],
       token: req.tokens.token,
-      refreshToken: req.tokens.xToken,
+      refreshToken: refresh,
     });
   });
 });
@@ -185,6 +186,7 @@ router.get("/logout", auth, async (req, res) => {
       expires: new Date(0),
     });
     req.user = {};
+    req.tokens = {};
 
     return res.status(200).json({ logout: true });
   } catch (err) {
