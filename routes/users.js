@@ -6,12 +6,21 @@ var express = require("express");
 var router = express.Router();
 var _ = require("lodash");
 var bcrypt = require("bcryptjs");
+const redis = require("redis");
+const client = redis.createClient();
+
+const updateData = (req, data) => {
+  return {
+    ...req,
+    data,
+  };
+};
 
 //User model
 const User = require("./../models/userModel");
 
 //Middleware to check if the user is logged in or not
-const auth = require("./../utils/auth");
+const { createTokens, auth } = require("./../utils/auth");
 const { hashPassword } = require("./../utils/hash");
 
 //Validation utils
@@ -39,7 +48,7 @@ router.post("/register", async (req, res, next) => {
             register: false,
             msg: `User with email ${email} and username ${username} already exists.`,
           });
-        return res.status(400).send({
+        return res.status(400).json({
           register: false,
           msg: `User with username ${username} already exists!`,
         });
@@ -55,7 +64,7 @@ router.post("/register", async (req, res, next) => {
         }
         await newUser.save();
 
-        return res.status(201).send({ register: true, user: newUser._id });
+        return res.status(201).json({ register: true, user: newUser._id });
       }
     })
     .catch((err) => {
@@ -72,7 +81,7 @@ router.post("/login", (req, res, next) => {
 
   let { error } = loginValidation(req.body);
   if (error) {
-    return res.status(400).send({ error: error.details[0].message });
+    return res.status(400).json({ error: error.details[0].message });
   }
 
   User.findOne({ username }).then(async (user) => {
@@ -88,33 +97,33 @@ router.post("/login", (req, res, next) => {
         .status(400)
         .json({ login: false, msg: "Passwords do not match!" });
     }
-    const { token, refreshToken } = await user.getTokens();
+    const { token, xToken } = await createTokens(user._id);
     try {
       await user.save();
       req.user = user;
-      req.tokens = [token, refreshToken];
+      req.tokens = { token, xToken };
     } catch (err) {
-      return res.status(400).json({ err });
+      return res.status(400).json({ login: false, err });
     }
 
-    console.log("Login true");
     //Send user with set HTTP cookies
-    res
-      .status(201)
-      .cookie("token", token, {
-        httpOnly: true,
-        maxAge: 36000,
-      })
-      .cookie("x-token", refreshToken, {
-        httpOnly: true,
-        maxAge: 36000,
-      })
-      .send({
-        login: true,
-        user: req.user["_id"],
-        token: req.tokens[0],
-        refreshToken: req.tokens[1],
-      });
+    const options = {
+      httpOnly: true,
+      maxAge: 36 * 60 * 1000,
+      secure: true,
+      sameSite: true,
+    };
+
+    //Set cookies
+    res.cookie("token", token, options);
+    res.cookie("x-token", xToken, options);
+
+    res.status(201).send({
+      login: true,
+      user: req.user["_id"],
+      token: req.tokens.token,
+      refreshToken: req.tokens.xToken,
+    });
   });
 });
 
@@ -149,14 +158,14 @@ router.post("/user/:id", auth, (req, res) => {
 });
 
 /* 
-  @GET /test
+  @GET /dashboard
   @desc : A sample protected route
   @access : Protected
 */
-router.get("/test", auth, (req, res) => {
-  res.status(200).send({
+router.get("/dashboard", auth, (req, res) => {
+  res.status(200).json({
     msg: "Success",
-    user: req.user,
+    desc: `Your dashboard ${req.user.id}`,
   });
 });
 
@@ -167,17 +176,24 @@ router.get("/test", auth, (req, res) => {
 */
 router.get("/logout", auth, async (req, res) => {
   try {
-    req.user.tokens = req.user.tokens.filter((token) => {
-      return token.token !== req.token;
+    res.cookie("x-token", "", {
+      httpOnly: true,
+      expires: new Date(0),
     });
+    res.cookie("auth-token", "", {
+      httpOnly: true,
+      expires: new Date(0),
+    });
+    req.user = {};
 
-    await req.user.save();
-    res.status(200).json({ logout: true });
-  } catch (err) {}
+    return res.status(200).json({ logout: true });
+  } catch (err) {
+    return res.status(401).json({ logout: false });
+  }
 });
 
 /* 
-  @GET /logout
+  @GET /logoutall
   @params : JWT 'auth-token' as a request-header of a currently logged in session
   @desc : Logs out of all sessions across multiple devices
   @access : Protected

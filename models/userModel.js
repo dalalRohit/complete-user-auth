@@ -22,24 +22,28 @@ var UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now(),
   },
+  refresh: {
+    type: String,
+    unique: true,
+  },
 });
 
 UserSchema.methods.getTokens = async function () {
   const user = this;
 
   const token = jwt.sign({ _id: user._id }, process.env.SECRET, {
-    expiresIn: "120000", //2m
+    expiresIn: "2m", //2m
   });
 
   const refreshToken = jwt.sign(
-    { user: _.pick(user, ["_id", "date", "username"]) },
+    { user: user._id },
     process.env.REFRESH + process.env.SECRET,
     {
       expiresIn: "7d",
     }
   );
 
-  return { token: token, refreshToken: refreshToken };
+  return { token, refreshToken };
 };
 
 var Users = mongoose.model("Users", UserSchema);

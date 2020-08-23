@@ -35,7 +35,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/", usersRouter);
 
-//csrf 
+//csrf
 app.use((req, res, next) => {
   csrf({ cookie: true });
   next();
