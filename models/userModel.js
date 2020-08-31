@@ -22,7 +22,7 @@ var UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now(),
   },
-  refresh: {
+  secret: {
     type: String,
     unique: true,
   },

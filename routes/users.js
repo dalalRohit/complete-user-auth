@@ -1,20 +1,17 @@
 /*
     Main Route file
 */
+require("dotenv").config();
 
 var express = require("express");
 var router = express.Router();
 var _ = require("lodash");
 var bcrypt = require("bcryptjs");
+var jwt = require("jsonwebtoken");
+const { v4: uuidv4 } = require("uuid");
+
 const redis = require("redis");
 const client = redis.createClient();
-
-const updateData = (req, data) => {
-  return {
-    ...req,
-    data,
-  };
-};
 
 //User model
 const User = require("./../models/userModel");
@@ -53,10 +50,12 @@ router.post("/register", async (req, res, next) => {
           msg: `User with username ${username} already exists!`,
         });
       } else {
+        const secret = uuidv4();
         const newUser = new User({
           username,
           email,
           password,
+          secret,
         });
         const hash = await hashPassword(newUser.password);
         if (hash) {
@@ -139,7 +138,7 @@ router.get("/users", auth, (req, res) => {
 });
 
 /* 
-  @GET /user/:id
+  @POST /user/:id
   @params : user._id 
   @desc : Get a user with given "id"
   @access : Protected
@@ -174,60 +173,34 @@ router.get("/dashboard", auth, (req, res) => {
   @params : JWT 'auth-token' as a request-header of a currently logged in session
   @access : Protected
 */
-router.get("/logout", auth, async (req, res) => {
-  try {
-    res.cookie("x-token", "", {
-      httpOnly: true,
-      expires: new Date(0),
-    });
-    res.cookie("auth-token", "", {
-      httpOnly: true,
-      expires: new Date(0),
-    });
-    req.user = {};
+router.get("/logout", auth, async (req, res, next) => {
+  const decoded = await jwt.decode(req.tokens.xToken);
 
-    return res.status(200).json({ logout: true });
-  } catch (err) {
-    return res.status(401).json({ logout: false });
-  }
-});
-
-/* 
-  @GET /logoutall
-  @params : JWT 'auth-token' as a request-header of a currently logged in session
-  @desc : Logs out of all sessions across multiple devices
-  @access : Protected
-*/
-router.get("/logoutall", auth, async (req, res) => {
-  try {
-    req.user.tokens = [];
-    await req.user.save();
-
-    res.status(200).json({ logoutAll: true });
-  } catch (err) {
-    res.status(500).send(err);
-  }
-});
-
-/* 
-  @GET /check
-  @params : JWT 'auth-token' as a request-header of a currently logged in session
-  @desc : Checks if the given token is valid or not
-  @access : Protected
-*/
-router.get("/check", auth, async (req, res) => {
-  let token = req.header("auth-token");
-  if (!token) {
-    return res.status(403).json({ msg: "Access denied" });
-  }
-  const user = await User.findOne({
-    "tokens.token": token,
+  //https://github.com/NodeRedis/node-redis/issues/1000#issuecomment-655488752
+  //setex(key,exp-time,val,cb())
+  client.setex(req.tokens.xToken, decoded.exp, req.user.id, (err, data) => {
+    if (err) {
+      return res.status(500).json({
+        logout: false,
+        msg: err.message,
+      });
+    }
   });
-  if (user) {
-    return res.status(200).json({ user: true, id: user._id });
-  } else {
-    return res.status(403).json({ user: false });
-  }
+
+  res.cookie("x-token", "", {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+  res.cookie("auth-token", "", {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+  req.user = {};
+  req.tokens = {};
+
+  return res.status(200).json({
+    logout: true,
+  });
 });
 
 /*
@@ -238,7 +211,7 @@ router.get("/check", auth, async (req, res) => {
   @desc: Updates password of user with _id:id
   @access: Protected
 */
-router.put("/update/:id", (req, res, next) => {
+router.put("/update/:id", auth, (req, res, next) => {
   const { id } = req.params;
   const { new_password, new_password_confirm } = req.body;
   if (new_password !== new_password_confirm) {
