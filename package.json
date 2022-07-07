@@ -17,7 +17,7 @@
     "http-errors": "~1.8.0",
     "jsonwebtoken": "^8.5.1",
     "lodash": "^4.17.19",
-    "moment": "^2.27.0",
+    "moment": "^2.29.4",
     "mongodb": "^3.5.9",
     "mongoose": "^5.9.22",
     "morgan": "~1.10.0"
